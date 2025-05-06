@@ -175,7 +175,7 @@ class ControlsScene extends Phaser.Scene {
         
         const credits = [
             'Art Assets: Kenney (www.kenney.nl)',
-            'Game Programming: [Your Name]',
+            'Game Programming: Ella',
             'CMPM 120 - Game Development'
         ];
         
