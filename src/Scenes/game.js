@@ -461,8 +461,13 @@ class GameScene extends Phaser.Scene {
         this.time.delayedCall(2000, () => {
             levelCompleteText.destroy();
             
+            // IMPORTANT: Clear existing enemies before creating new ones
+            if (this.enemies) {
+                this.enemies.clear(true, true);
+            }
+            
             // Create new enemies with increased difficulty
-            this.enemySpeed += 0.02;
+            this.enemySpeed += 0.002;
             this.createEnemies();
         });
     }

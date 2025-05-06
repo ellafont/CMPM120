@@ -144,7 +144,7 @@ class ControlsScene extends Phaser.Scene {
             'ESC - Return to Title'
         ];
         
-        let y = 150;
+        let y = 100;
         controls.forEach(control => {
             const text = this.add.text(
                 this.cameras.main.width / 2,
@@ -194,8 +194,6 @@ class ControlsScene extends Phaser.Scene {
             text.setOrigin(0.5);
             y += 40;
         });
-        
-      
         
         // ESC to return to title
         this.input.keyboard.once('keydown-ESC', () => {
