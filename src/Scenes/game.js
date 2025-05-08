@@ -12,6 +12,7 @@ class GameScene extends Phaser.Scene {
         this.isLevelTransitioning = false;
         this.levelCompleteCooldown = 0;
 
+        
         // Game state
         this.player = null;
         this.enemies = null;
@@ -33,24 +34,29 @@ class GameScene extends Phaser.Scene {
         this.score = 0;
         
         // Asteroid config
-        this.asteroidSpawnRate = 3000; // ms between asteroid spawns //make it so more asteroids spawn as time goes on...
+        this.asteroidSpawnRate = 3500; // ms between asteroid spawns //make it so more asteroids spawn as time goes on...
         this.lastAsteroidTime = 0;
         this.asteroidSpeed = 2;
         this.maxAsteroids = 10;
     }
 
+    
     preload() {
         // Set path to assets folder
         this.load.setPath("./assets/");
-
-        // Load laser assets with proper XML file
-        this.load.atlasXML("lasers", "spritesheet_lasers.png", "spritesheet_lasers.xml");
+    
+        // Load assets with error handling
+        this.load.atlasXML("lasers", "spritesheet_lasers.png", "spritesheet_lasers.xml")
+            .on('filecomplete', () => console.log("Lasers loaded successfully"))
+            .on('loaderror', (file) => console.error("Error loading laser assets:", file));
         
-        // Load ship assets with proper XML file
-        this.load.atlasXML("ships", "spritesheet_spaceships.png", "spritesheet_spaceships.xml");
+        this.load.atlasXML("ships", "spritesheet_spaceships.png", "spritesheet_spaceships.xml")
+            .on('filecomplete', () => console.log("Ships loaded successfully"))
+            .on('loaderror', (file) => console.error("Error loading ship assets:", file));
         
-        // Load meteor assets
-        this.load.atlasXML("meteors", "sheet.png", "sheet.xml");
+        this.load.atlasXML("meteors", "sheet.png", "sheet.xml")
+            .on('filecomplete', () => console.log("Meteors loaded successfully"))
+            .on('loaderror', (file) => console.error("Error loading meteor assets:", file));
         
         // Set instructions text
         if (document.getElementById('description')) {
@@ -59,20 +65,20 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
-        // Initialize level transition variables
-        this.isLevelTransitioning = false;
-        this.levelCompleteCooldown = 0;
-
-        // Ensure enemies are created
-        this.time.delayedCall(500, () => {
-            this.forceCreateEnemies();
-        });
-
         // Set background color
         this.cameras.main.setBackgroundColor('#000033');
         this.createStarfield();
         
-        // Create player ship using the correct sprite name from the XML
+        // Initialize game state variables
+        this.isGameOver = false;
+        this.isPaused = false;
+        this.isLevelTransitioning = false;
+        this.levelCompleteCooldown = 0;
+        this.score = 0;
+        this.enemySpeed = 0.5;
+        this.asteroidSpawnRate = 3500;
+        
+        // Create player ship
         this.player = this.physics.add.sprite(
             this.cameras.main.width / 2,
             this.cameras.main.height - 50,
@@ -89,23 +95,23 @@ class GameScene extends Phaser.Scene {
             right: Phaser.Input.Keyboard.KeyCodes.D,
             right2: Phaser.Input.Keyboard.KeyCodes.RIGHT,
             fire: Phaser.Input.Keyboard.KeyCodes.SPACE,
-            pause: Phaser.Input.Keyboard.KeyCodes.ESC // Add ESC key for pause
+            pause: Phaser.Input.Keyboard.KeyCodes.ESC
         });
-
+    
         // High score text
         this.highScoreText = this.add.text(
             this.cameras.main.width - 20, 
             20, 
             'High Score: ' + this.highScore, 
             {
-                fontFamily: 'Arial',
+                fontFamily: 'Space Grotesk',
                 fontSize: '20px',
                 color: '#ffffff',
-                align: 'right'
+                align: 'right',
+                stroke: '#000000',
+                strokeThickness: 2
             }
         );
-
-        //high score text outline
         this.highScoreText.setOrigin(1, 0);
     
         // Load high score from local storage
@@ -115,10 +121,17 @@ class GameScene extends Phaser.Scene {
             this.highScoreText.setText('High Score: ' + this.highScore);
         }
         
-        // Create enemies
-        //this.createEnemies();
+        // Create score text
+        this.scoreText = this.add.text(20, 20, 'Score: ' + this.score, {
+            fontFamily: 'Space Grotesk',
+            fontSize: '28px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 4
+        });
         
-        // Create multiple laser objects using the correct sprite name
+        // Create laser objects
+        this.lasers = [];
         for (let i = 0; i < this.maxBullets; i++) {
             let laser = this.physics.add.sprite(-100, -100, 'lasers', 'laserGreen1.png');
             laser.setScale(0.5);
@@ -130,18 +143,13 @@ class GameScene extends Phaser.Scene {
         // Create asteroid group
         this.asteroids = this.add.group();
         
-        // Create score text with larger font and outline for better visibility
-        this.scoreText = this.add.text(20, 20, 'Score: ' + this.score, {
-            fontFamily: 'Arial',
-            fontSize: '28px',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4
-        });
-
         // Listen for ESC key to toggle pause
         this.input.keyboard.on('keydown-ESC', this.togglePause, this);
-
+        
+        // Create initial enemies with delay to allow scene setup
+        this.time.delayedCall(500, () => {
+            this.forceCreateEnemies();
+        });
     }
 
     createStarfield() {
@@ -189,222 +197,219 @@ class GameScene extends Phaser.Scene {
     }
 
 
-    // Add this new method for pausing the game
+    togglePause() {
+        this.isPaused = !this.isPaused;
     
-// Add this new method for pausing the game
-togglePause() {
-    this.isPaused = !this.isPaused;
-    
-    if (this.isPaused) {
-        // Pause physics
-        this.physics.pause();
+        if (this.isPaused) {
+            // Pause physics
+            this.physics.pause();
         
-        // Clear any existing pause elements first (in case of any lingering elements)
-        if (this.pauseElements) {
-            this.pauseElements.clear(true, true);
-        }
-        
-        // Create a fresh group for pause elements
-        this.pauseElements = this.add.group();
-        
-        // Create semi-transparent overlay
-        this.pauseOverlay = this.add.rectangle(
-            this.cameras.main.width / 2,
-            this.cameras.main.height / 2,
-            this.cameras.main.width,
-            this.cameras.main.height,
-            0x000000,
-            0.7
-        );
-        this.pauseElements.add(this.pauseOverlay);
-        
-        // Create pause title
-        this.pauseTitle = this.add.text(
-            this.cameras.main.width / 2,
-            50,
-            'GAME PAUSED',
-            {
-                fontFamily: 'Arial',
-                fontSize: '40px',
-                color: '#ffffff',
-                stroke: '#000000',
-                strokeThickness: 4
+            // Clear any existing pause elements first (in case of any lingering elements)
+            if (this.pauseElements) {
+                this.pauseElements.clear(true, true);
             }
-        );
-        this.pauseTitle.setOrigin(0.5);
-        this.pauseElements.add(this.pauseTitle);
         
-        // Show controls
-        this.showControls();
+            // Create a fresh group for pause elements
+            this.pauseElements = this.add.group();
         
-        // Show credits
-        this.showCredits();
+            // Create semi-transparent overlay
+            this.pauseOverlay = this.add.rectangle(
+                this.cameras.main.width / 2,
+                this.cameras.main.height / 2,
+                this.cameras.main.width,
+                this.cameras.main.height,
+                0x000000,
+                0.7
+            );
+            this.pauseElements.add(this.pauseOverlay);
         
-        // Resume instructions
-        this.resumeText = this.add.text(
-            this.cameras.main.width / 2,
-            this.cameras.main.height - 50,
-            'Press ESC to resume',
-            {
-                fontFamily: 'Arial',
-                fontSize: '24px',
-                color: '#ffffff',
-                stroke: '#000000',
-                strokeThickness: 4
+            // Create pause title
+            this.pauseTitle = this.add.text(
+                this.cameras.main.width / 2,
+                50,
+                'GAME PAUSED',
+                {
+                    fontFamily: 'Space Grotesk',
+                    fontSize: '40px',
+                    color: '#ffffff',
+                    stroke: '#000000',
+                    strokeThickness: 4
+                }
+            );
+            this.pauseTitle.setOrigin(0.5);
+            this.pauseElements.add(this.pauseTitle);
+        
+            // Show controls
+            this.showControls();
+        
+            // Show credits
+            this.showCredits();
+        
+            // Resume instructions
+            this.resumeText = this.add.text(
+                this.cameras.main.width / 2,
+                this.cameras.main.height - 50,
+                'Press ESC to resume',
+                {
+                    fontFamily: 'Space Grotesk',
+                    fontSize: '24px',
+                    color: '#ffffff',
+                    stroke: '#000000',
+                    strokeThickness: 4
+                }
+            );
+            this.resumeText.setOrigin(0.5);
+            this.pauseElements.add(this.resumeText);
+        
+            // Make the text flash for visibility
+            this.tweens.add({
+                targets: this.resumeText,
+                alpha: 0.5,
+                duration: 500,
+                ease: 'Power1',
+                yoyo: true,
+                repeat: -1
+            });
+        } else {
+            // Resume physics
+            this.physics.resume();
+        
+           // Remove all pause elements
+            if (this.pauseElements) {
+              this.pauseElements.clear(true, true);
+              this.pauseElements.destroy();
+              this.pauseElements = null;
             }
-        );
-        this.resumeText.setOrigin(0.5);
-        this.pauseElements.add(this.resumeText);
         
-        // Make the text flash for visibility
-        this.tweens.add({
-            targets: this.resumeText,
-            alpha: 0.5,
-            duration: 500,
-            ease: 'Power1',
-            yoyo: true,
-            repeat: -1
-        });
-    } else {
-        // Resume physics
-        this.physics.resume();
+            // Explicitly destroy any text elements that might be lingering
+            if (this.pauseTitle) {
+                this.pauseTitle.destroy();
+                this.pauseTitle = null;
+            }
         
-        // Remove all pause elements
-        if (this.pauseElements) {
-            this.pauseElements.clear(true, true);
-            this.pauseElements.destroy();
-            this.pauseElements = null;
-        }
+            if (this.resumeText) {
+                this.resumeText.destroy();
+                this.resumeText = null;
+            }
         
-        // Explicitly destroy any text elements that might be lingering
-        if (this.pauseTitle) {
-            this.pauseTitle.destroy();
-            this.pauseTitle = null;
-        }
+            // Destroy control and credit text arrays
+            if (this.controlTexts) {
+                this.controlTexts.forEach(text => {
+                    if (text) text.destroy();
+                });
+                this.controlTexts = [];
+            }
         
-        if (this.resumeText) {
-            this.resumeText.destroy();
-            this.resumeText = null;
-        }
+            if (this.creditTexts) {
+                this.creditTexts.forEach(text => {
+                    if (text) text.destroy();
+                });
+                this.creditTexts = [];
+            }
         
-        // Destroy control and credit text arrays
-        if (this.controlTexts) {
-            this.controlTexts.forEach(text => {
-                if (text) text.destroy();
-            });
-            this.controlTexts = [];
-        }
-        
-        if (this.creditTexts) {
-            this.creditTexts.forEach(text => {
-                if (text) text.destroy();
-            });
-            this.creditTexts = [];
-        }
-        
-        // Destroy overlay
-        if (this.pauseOverlay) {
-            this.pauseOverlay.destroy();
-            this.pauseOverlay = null;
+            // Destroy overlay
+            if (this.pauseOverlay) {
+                this.pauseOverlay.destroy();
+                this.pauseOverlay = null;
+            }
         }
     }
-}
 
     // Add these methods for showing controls and credits
-showControls() {
-    // Controls title
-    const controlsTitle = this.add.text(
-        this.cameras.main.width / 2,
-        120,
-        'CONTROLS',
-        {
-            fontFamily: 'Arial',
-            fontSize: '32px',
-            color: '#ffffff'
-        }
-    );
-    controlsTitle.setOrigin(0.5);
-    
-    // Controls instructions
-    const controls = [
-        'A / LEFT ARROW - Move Left',
-        'D / RIGHT ARROW - Move Right',
-        'SPACE - Fire Laser',
-        'ESC - Pause/Resume Game'
-    ];
-    
-    let y = 160;
-    this.controlTexts = [];
-    
-    controls.forEach(control => {
-        const text = this.add.text(
+    showControls() {
+        // Controls title
+        const controlsTitle = this.add.text(
             this.cameras.main.width / 2,
-            y,
-            control,
+            120,
+            'CONTROLS',
             {
-                fontFamily: 'Arial',
-                fontSize: '20px',
+                fontFamily: 'Space Grotesk',
+                fontSize: '32px',
                 color: '#ffffff'
             }
         );
-        text.setOrigin(0.5);
-        this.controlTexts.push(text);
-        y += 30;
-    });
-    
-    // Add to pause elements group
-    if (this.pauseElements) {
-        this.pauseElements.add(controlsTitle);
-        this.controlTexts.forEach(text => this.pauseElements.add(text));
+        controlsTitle.setOrigin(0.5);
+        
+        // Controls instructions
+        const controls = [
+            'A / LEFT ARROW - Move Left',
+            'D / RIGHT ARROW - Move Right',
+            'SPACE - Fire Laser',
+            'ESC - Pause/Resume Game'
+        ];
+        
+        let y = 160;
+        this.controlTexts = [];
+        
+        controls.forEach(control => {
+            const text = this.add.text(
+                this.cameras.main.width / 2,
+                y,
+                control,
+                {
+                    fontFamily: 'Space Grotesk',
+                    fontSize: '20px',
+                    color: '#ffffff'
+                }
+            );
+            text.setOrigin(0.5);
+            this.controlTexts.push(text);
+            y += 30;
+        });
+        
+        // Add to pause elements group
+        if (this.pauseElements) {
+            this.pauseElements.add(controlsTitle);
+            this.controlTexts.forEach(text => this.pauseElements.add(text));
+        }
     }
-}
 
-showCredits() {
-    // Credits title
-    const creditsTitle = this.add.text(
-        this.cameras.main.width / 2,
-        300,
-        'CREDITS',
-        {
-            fontFamily: 'Arial',
-            fontSize: '32px',
-            color: '#ffffff'
-        }
-    );
-    creditsTitle.setOrigin(0.5);
-    
-    // Credits text
-    const credits = [
-        'Art Assets: Kenney (www.kenney.nl)',
-        'Game Programming: Ella',
-        'CMPM 120 - Game Development'
-    ];
-    
-    let y = 340;
-    this.creditTexts = [];
-    
-    credits.forEach(credit => {
-        const text = this.add.text(
+    showCredits() {
+        // Credits title
+        const creditsTitle = this.add.text(
             this.cameras.main.width / 2,
-            y,
-            credit,
+            300,
+            'CREDITS',
             {
-                fontFamily: 'Arial',
-                fontSize: '20px',
+                fontFamily: 'Space Grotesk',
+                fontSize: '32px',
                 color: '#ffffff'
             }
         );
-        text.setOrigin(0.5);
-        this.creditTexts.push(text);
-        y += 30;
-    });
-    
-    // Add to pause elements group
-    if (this.pauseElements) {
-        this.pauseElements.add(creditsTitle);
-        this.creditTexts.forEach(text => this.pauseElements.add(text));
+        creditsTitle.setOrigin(0.5);
+        
+        // Credits text
+        const credits = [
+            'Art Assets: Kenney (www.kenney.nl)',
+            'Game Programming: Ella',
+            'CMPM 120 - Game Development'
+        ];
+        
+        let y = 340;
+        this.creditTexts = [];
+        
+        credits.forEach(credit => {
+            const text = this.add.text(
+                this.cameras.main.width / 2,
+                y,
+                credit,
+                {
+                    fontFamily: 'Space Grotesk',
+                    fontSize: '20px',
+                    color: '#ffffff'
+                }
+            );
+            text.setOrigin(0.5);
+            this.creditTexts.push(text);
+            y += 30;
+        });
+        
+        // Add to pause elements group
+        if (this.pauseElements) {
+            this.pauseElements.add(creditsTitle);
+            this.creditTexts.forEach(text => this.pauseElements.add(text));
+        }
     }
-}
 
     update(time, delta) {
         // Skip update if game is over
@@ -487,38 +492,74 @@ showCredits() {
 
     }
     
-// Replace createEnemies with this fixed version
-createEnemies() {
-    // Safety check to prevent creating enemies during a transition
-    if (this.isLevelTransitioning && this.levelCompleteCooldown > 2000) {
-        console.log("Skipping enemy creation during transition");
-        return;
-    }
-    
-    console.log("Creating enemies for level " + this.currentLevel);
-    
-    // Clear any existing enemies first
-    if (this.enemies) {
-        this.enemies.clear(true, true);
-    } else {
-        this.enemies = this.add.group();
-    }
-    
-    // Enemy types from the sprite atlas
-    const enemyTypes = [
-        'shipPink.png',
-        'shipGreen.png',
-        'shipBlue.png',
-        'shipBeige.png'
-    ];
-    
-    try {
-        // Choose formation based on current level
-        const formation = this.getFormation(this.currentLevel);
+    //generate enemies (based on level)
+    createEnemies() {
+        // Safety check to prevent creating enemies during a transition
+        if (this.isLevelTransitioning && this.levelCompleteCooldown > 2000) {
+            console.log("Skipping enemy creation during transition");
+            return;
+        }
         
-        if (!formation || !formation.positions || formation.positions.length === 0) {
-            console.error("Invalid formation returned for level " + this.currentLevel);
-            // Create at least one enemy to prevent level completion race condition
+        console.log("Creating enemies for level " + this.currentLevel);
+        
+        // Clear any existing enemies first
+        if (this.enemies) {
+            this.enemies.clear(true, true);
+        } else {
+            this.enemies = this.add.group();
+        }
+        
+        // Enemy types from the sprite atlas
+        const enemyTypes = [
+            'shipPink.png',
+            'shipGreen.png',
+            'shipBlue.png',
+            'shipBeige.png'
+        ];
+        
+        try {
+            // Choose formation based on current level
+            const formation = this.getFormation(this.currentLevel);
+            
+            if (!formation || !formation.positions || formation.positions.length === 0) {
+                console.error("Invalid formation returned for level " + this.currentLevel);
+                // Create at least one enemy to prevent level completion race condition
+                const enemy = this.physics.add.sprite(
+                    this.cameras.main.width / 2,
+                    100,
+                    'ships',
+                    enemyTypes[0]
+                );
+                enemy.setScale(0.3);
+                enemy.points = 50;
+                this.enemies.add(enemy);
+            } else {
+                // Create enemies according to the chosen formation
+                formation.positions.forEach((position, index) => {
+                    // Choose enemy type based on row/position in the formation
+                    const enemyType = enemyTypes[index % enemyTypes.length];
+                    
+                    // Create enemy with appropriate sprite
+                    const enemy = this.physics.add.sprite(
+                        position.x,
+                        position.y,
+                        'ships',
+                        enemyType
+                    );
+                    
+                    // Set properties
+                    enemy.setScale(0.3);
+                    enemy.points = Math.floor((this.cameras.main.height - position.y) / 30) * 10;
+                    
+                    // Add to group
+                    this.enemies.add(enemy);
+                });
+            }
+            
+            console.log("Created " + this.enemies.getChildren().length + " enemies");
+        } catch (error) {
+            console.error("Error creating enemies: " + error);
+            // Create at least one enemy as fallback
             const enemy = this.physics.add.sprite(
                 this.cameras.main.width / 2,
                 100,
@@ -528,169 +569,133 @@ createEnemies() {
             enemy.setScale(0.3);
             enemy.points = 50;
             this.enemies.add(enemy);
-        } else {
-            // Create enemies according to the chosen formation
-            formation.positions.forEach((position, index) => {
-                // Choose enemy type based on row/position in the formation
-                const enemyType = enemyTypes[index % enemyTypes.length];
-                
-                // Create enemy with appropriate sprite
-                const enemy = this.physics.add.sprite(
-                    position.x,
-                    position.y,
-                    'ships',
-                    enemyType
-                );
-                
-                // Set properties
-                enemy.setScale(0.3);
-                enemy.points = Math.floor((this.cameras.main.height - position.y) / 30) * 10;
-                
-                // Add to group
-                this.enemies.add(enemy);
-            });
         }
         
-        console.log("Created " + this.enemies.getChildren().length + " enemies");
-    } catch (error) {
-        console.error("Error creating enemies: " + error);
-        // Create at least one enemy as fallback
-        const enemy = this.physics.add.sprite(
+        // Display level number for 2 seconds
+        const levelText = this.add.text(
             this.cameras.main.width / 2,
-            100,
-            'ships',
-            enemyTypes[0]
+            this.cameras.main.height / 3,
+            'LEVEL ' + this.currentLevel,
+            {
+                fontFamily: 'Space Grotesk',
+                fontSize: '48px',
+                color: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 4,
+                align: 'center'
+            }
         );
-        enemy.setScale(0.3);
-        enemy.points = 50;
-        this.enemies.add(enemy);
+        levelText.setOrigin(0.5);
+        
+        // Make level text fade out
+        this.tweens.add({
+            targets: levelText,
+            alpha: 0,
+            duration: 2000,
+            ease: 'Power2',
+            delay: 1000,
+            onComplete: () => {
+                levelText.destroy();
+            }
+        });
     }
-    
-    // Display level number for 2 seconds
-    const levelText = this.add.text(
-        this.cameras.main.width / 2,
-        this.cameras.main.height / 3,
-        'LEVEL ' + this.currentLevel,
-        {
-            fontFamily: 'Arial',
-            fontSize: '48px',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4,
-            align: 'center'
-        }
-    );
-    levelText.setOrigin(0.5);
-    
-    // Make level text fade out
-    this.tweens.add({
-        targets: levelText,
-        alpha: 0,
-        duration: 2000,
-        ease: 'Power2',
-        delay: 1000,
-        onComplete: () => {
-            levelText.destroy();
-        }
-    });
-}
 
 
-getFormation(level) {
-    // Ensure level is a positive number
-    level = Math.max(1, level || 1);
-    
-    const screenWidth = this.cameras.main.width;
-    const screenHeight = this.cameras.main.height;
-    
-    // Default spacing and position values
-    const defaultEnemyWidth = 40;
-    const defaultEnemyHeight = 40;
-    const defaultXSpacing = 60;
-    const defaultYSpacing = 50;
-    const defaultXStart = (screenWidth - (this.enemyCols * defaultXSpacing)) / 2 + 30;
-    const defaultYStart = 80;
-    
-    // Array to hold enemy positions
-    let positions = [];
-    
-    try {
-        // Choose formation based on level number (cycle through formations as levels increase)
-        switch ((level - 1) % 7) {
-            case 0: // Standard grid (Level 1, 8, 15, etc.)
-                // Create grid of enemies (at least 3x3)
-                const rows = Math.min(this.enemyRows, 5);
-                const cols = Math.min(this.enemyCols, 8);
-                
-                for (let row = 0; row < rows; row++) {
-                    for (let col = 0; col < cols; col++) {
-                        positions.push({
-                            x: defaultXStart + col * defaultXSpacing,
-                            y: defaultYStart + row * defaultYSpacing
-                        });
-                    }
-                }
-                break;
-                
-            // Other formation cases stay the same...
-            case 1: // V formation
-                const vCenterX = screenWidth / 2;
-                const vTopY = 80;
-                const vSpread = 40;
-                
-                for (let i = 0; i < 20; i++) {
-                    const row = Math.floor(i / 4);
-                    const col = i % 4;
+    getFormation(level) {
+        // Ensure level is a positive number
+        level = Math.max(1, level || 1);
+        
+        const screenWidth = this.cameras.main.width;
+        const screenHeight = this.cameras.main.height;
+        
+        // Default spacing and position values
+        const defaultEnemyWidth = 40;
+        const defaultEnemyHeight = 40;
+        const defaultXSpacing = 60;
+        const defaultYSpacing = 50;
+        const defaultXStart = (screenWidth - (this.enemyCols * defaultXSpacing)) / 2 + 30;
+        const defaultYStart = 80;
+        
+        // Array to hold enemy positions
+        let positions = [];
+        
+        try {
+            // Choose formation based on level number (cycle through formations as levels increase)
+            switch ((level - 1) % 7) {
+                case 0: // Standard grid (Level 1, 8, 15, etc.)
+                    // Create grid of enemies (at least 3x3)
+                    const rows = Math.min(this.enemyRows, 5);
+                    const cols = Math.min(this.enemyCols, 8);
                     
-                    if (col < 2) {
-                        positions.push({
-                            x: vCenterX - (vSpread * (row + 1)) - (col * vSpread / 2),
-                            y: vTopY + row * vSpread
-                        });
-                    } else {
-                        positions.push({
-                            x: vCenterX + (vSpread * (row + 1)) + ((col - 2) * vSpread / 2),
-                            y: vTopY + row * vSpread
-                        });
+                    for (let row = 0; row < rows; row++) {
+                        for (let col = 0; col < cols; col++) {
+                            positions.push({
+                                x: defaultXStart + col * defaultXSpacing,
+                                y: defaultYStart + row * defaultYSpacing
+                            });
+                        }
                     }
-                }
-                break;
-                
-            // Other cases...
-            default: // Fallback to simple grid if something goes wrong
-                // Create a simple grid as fallback
-                for (let row = 0; row < 3; row++) {
-                    for (let col = 0; col < 5; col++) {
-                        positions.push({
-                            x: defaultXStart + col * defaultXSpacing,
-                            y: defaultYStart + row * defaultYSpacing
-                        });
+                    break;
+                    
+                // Other formation cases stay the same...
+                case 1: // V formation
+                    const vCenterX = screenWidth / 2;
+                    const vTopY = 80;
+                    const vSpread = 40;
+                    
+                    for (let i = 0; i < 20; i++) {
+                        const row = Math.floor(i / 4);
+                        const col = i % 4;
+                        
+                        if (col < 2) {
+                            positions.push({
+                                x: vCenterX - (vSpread * (row + 1)) - (col * vSpread / 2),
+                                y: vTopY + row * vSpread
+                            });
+                        } else {
+                            positions.push({
+                                x: vCenterX + (vSpread * (row + 1)) + ((col - 2) * vSpread / 2),
+                                y: vTopY + row * vSpread
+                            });
+                        }
                     }
-                }
-                break;
+                    break;
+                    
+                // Other cases...
+                default: // Fallback to simple grid if something goes wrong
+                    // Create a simple grid as fallback
+                    for (let row = 0; row < 3; row++) {
+                        for (let col = 0; col < 5; col++) {
+                            positions.push({
+                                x: defaultXStart + col * defaultXSpacing,
+                                y: defaultYStart + row * defaultYSpacing
+                            });
+                        }
+                    }
+                    break;
+            }
+        } catch (error) {
+            console.error("Error in getFormation: " + error);
+            // Fallback to simple formation
+            for (let i = 0; i < 5; i++) {
+                positions.push({
+                    x: screenWidth / 2 - 100 + i * 50,
+                    y: 100
+                });
+            }
         }
-    } catch (error) {
-        console.error("Error in getFormation: " + error);
-        // Fallback to simple formation
-        for (let i = 0; i < 5; i++) {
+        
+        // Safety check: ensure we have at least some positions
+        if (positions.length === 0) {
+            console.warn("No enemy positions generated, using fallback");
             positions.push({
-                x: screenWidth / 2 - 100 + i * 50,
+                x: screenWidth / 2,
                 y: 100
             });
         }
+        
+        return { positions };
     }
-    
-    // Safety check: ensure we have at least some positions
-    if (positions.length === 0) {
-        console.warn("No enemy positions generated, using fallback");
-        positions.push({
-            x: screenWidth / 2,
-            y: 100
-        });
-    }
-    
-    return { positions };
-}
     
     moveEnemies() {
         // Get enemies group children
@@ -884,7 +889,7 @@ getFormation(level) {
             this.cameras.main.height / 2,
             'LEVEL ' + this.currentLevel + ' COMPLETE!',
             {
-                fontFamily: 'Arial',
+                fontFamily: 'Space Grotesk',
                 fontSize: '32px',
                 color: '#ffffff',
                 align: 'center',
@@ -908,7 +913,7 @@ getFormation(level) {
         console.log("Moving from level " + completedLevel + " to level " + this.currentLevel);
         
         // Increase difficulty
-        this.enemySpeed += 0.05;
+        this.enemySpeed += 0.03;
         this.asteroidSpawnRate = Math.max(1000, this.asteroidSpawnRate - 200);
         
         // Remove text and background after delay and create new enemies
@@ -1153,7 +1158,7 @@ getFormation(level) {
             this.cameras.main.height / 3,
             'LEVEL ' + this.currentLevel,
             {
-                fontFamily: 'Arial',
+                fontFamily: 'Space Grotesk',
                 fontSize: '48px',
                 color: '#ffffff',
                 stroke: '#000000',
@@ -1202,24 +1207,30 @@ getFormation(level) {
         return this.enemies.getChildren().length; // Return number of enemies created
     }
     
-    // Update gameOver method to reset level counter
     gameOver(reason = "GAME OVER") {
         this.isGameOver = true;
-    
+        
+        // Pause physics to stop any movement
+        this.physics.pause();
+        
+        console.log("Game over triggered: " + reason);
+        
         // Create game over text
         const gameOverText = this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2 - 80,
             "GAME OVER",
             {
-               fontFamily: 'Arial',
-               fontSize: '48px',
-               color: '#ff0000',
-               align: 'center'
-           }
+                fontFamily: 'Space Grotesk',
+                fontSize: '48px',
+                color: '#ff0000',
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 4
+            }
         );
         gameOverText.setOrigin(0.5);
-    
+        
         // Show reason if provided
         if (reason !== "GAME OVER") {
             const reasonText = this.add.text(
@@ -1227,77 +1238,113 @@ getFormation(level) {
                 this.cameras.main.height / 2 - 30,
                 reason,
                 {
-                    fontFamily: 'Arial',
+                    fontFamily: 'Space Grotesk',
                     fontSize: '24px',
                     color: '#ffffff',
-                    align: 'center'
+                    align: 'center',
+                    stroke: '#000000',
+                    strokeThickness: 2
                 }
             );
             reasonText.setOrigin(0.5);
         }
-
+    
         // Update high score if needed
         if (this.score > this.highScore) {
             this.highScore = this.score;
             localStorage.setItem('spaceShooterHighScore', this.highScore);
+            
+            // Show high score achieved message
+            const newHighScoreText = this.add.text(
+                this.cameras.main.width / 2,
+                this.cameras.main.height / 2 + 100,
+                'NEW HIGH SCORE!',
+                {
+                    fontFamily: 'Space Grotesk',
+                    fontSize: '28px',
+                    color: '#ffff00',
+                    align: 'center',
+                    stroke: '#000000',
+                    strokeThickness: 4
+                }
+            );
+            newHighScoreText.setOrigin(0.5);
+            
+            // Make it flash
+            this.tweens.add({
+                targets: newHighScoreText,
+                alpha: 0.3,
+                duration: 300,
+                ease: 'Power1',
+                yoyo: true,
+                repeat: -1
+            });
         }
-
+    
         // Display high score
         const highScoreText = this.add.text(
-        this.cameras.main.width / 2,
-        this.cameras.main.height / 2 + 50,
-        'High Score: ' + this.highScore,
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2 + 50,
+            'High Score: ' + this.highScore,
             {
-                fontFamily: 'Arial',
+                fontFamily: 'Space Grotesk',
                 fontSize: '24px',
                 color: '#ffff00',
-                align: 'center'
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 2
             }
         );
         highScoreText.setOrigin(0.5);
-    
+        
         // Show final score
         const finalScoreText = this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2 + 20,
             'Final Score: ' + this.score,
-           {
-               fontFamily: 'Arial',
-               fontSize: '24px',
-               color: '#ffffff',
-               align: 'center'
+            {
+                fontFamily: 'Space Grotesk',
+                fontSize: '24px',
+                color: '#ffffff',
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 2
             }
         );
         finalScoreText.setOrigin(0.5);
-    
+        
         // Show level reached
         const levelText = this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2 - 5,
             'Level Reached: ' + this.currentLevel,
             {
-                fontFamily: 'Arial',
+                fontFamily: 'Space Grotesk',
                 fontSize: '24px',
                 color: '#ffffff',
-                align: 'center'
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 2
             }
         );
         levelText.setOrigin(0.5);
-    
+        
         // Show restart instructions
         const restartText = this.add.text(
             this.cameras.main.width / 2,
-            this.cameras.main.height / 2 + 80,
+            this.cameras.main.height / 2 + 150,
             'Press SPACE to play again',
             {
-                fontFamily: 'Arial',
-                fontSize: '24px',
+                fontFamily: 'Space Grotesk',
+                fontSize: '28px',
                 color: '#ffffff',
-                align: 'center'
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 3
             }
         );
         restartText.setOrigin(0.5);
-    
+        
         // Make restart text flash
         this.tweens.add({
             targets: restartText,
@@ -1307,9 +1354,19 @@ getFormation(level) {
             yoyo: true,
             repeat: -1
         });
-    
-        // Listen for space key to restart
-        this.input.keyboard.once('keydown-SPACE', () => {
+        
+        // Remove existing keyboard listeners first to prevent duplicates
+        this.input.keyboard.removeAllKeys(true);
+        
+        // Add a new space key listener for restart
+        const spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        
+        spaceKey.on('down', () => {
+            console.log("Space pressed - restarting game");
+            
+            // Stop all running tweens
+            this.tweens.killAll();
+            
             // Reset game state
             this.score = 0;
             this.enemySpeed = 0.5;
@@ -1318,12 +1375,35 @@ getFormation(level) {
             this.currentLevel = 1;
             this.isLevelTransitioning = false;
             this.levelCompleteCooldown = 0;
-        
-            // Restart game
+            
+            // Stop all physics
+            this.physics.pause();
+            
+            // Remove all game objects
+            this.children.each(child => {
+                if (child.active) {
+                    child.destroy();
+                }
+            });
+            
+            // Clear all groups
+            if (this.enemies) {
+                this.enemies.clear(true, true);
+                this.enemies = null;
+            }
+            
+            if (this.asteroids) {
+                this.asteroids.clear(true, true);
+                this.asteroids = null;
+            }
+            
+            // Remove key event listeners
+            this.input.keyboard.removeAllKeys(true);
+            
+            // Restart scene with a fresh state
             this.scene.restart();
         });
     }
-
 
     // Create a boss enemy
     createBoss() {
